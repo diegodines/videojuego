@@ -55,6 +55,18 @@ pine, fern, grass, flower, barrel, crate, boulder, rocks, person, homer (MD3), k
 Marquen cada casilla cuando el asset esté descargado **y cargando en el motor**.
 
 ### 3.1 Modelos animados (GLB, mínimo 3)
+
+**Elegidos** (Sketchfab, todos CC BY 4.0: hay que citar al autor). En Sketchfab hay que iniciar sesión, presionar **Download 3D Model** y elegir el formato **glb**:
+
+| # | Modelo | Autor | Caras | Animaciones | Link |
+|---|---|---|---|---|---|
+| A1 | Chicken - rigged (gallina blanca low-poly) | blujay | 412 | 6: idle de pie, idle sentada, rascar y picotear, caminar, sentarse, pararse | https://sketchfab.com/3d-models/chicken-rigged-6e3b93c078114c52bfe4cfa08b9843eb |
+| A2 | FPS Arms remington (shotgun) | ccransh (brazos de bumstrum, escopeta de tris09) | 9.151 | 4 | https://sketchfab.com/3d-models/fps-arms-remington-shotgun-e68ef617fe8a48cca8610d016ffd5881 |
+| A3 | Handpainted Rooster (gallo colorido = gallo jefe, vale más puntos) | rukh3d (malla de Enkarra) | 2.367 | 3 | https://sketchfab.com/3d-models/handpainted-rooster-02ffc550ed644f849d47d02d4b13a960 |
+
+Alternativa para A2: "sawnoff animated" (escopeta recortada con brazos) de bumstrum, https://sketchfab.com/3d-models/sawnoff-animated-806f8327bed34fc3b0e3911d01f0566d
+
+Detalle original de cada modelo buscado:
 - [ ] **A1 — Gallina**, el objetivo con muchas copias en escena. Animaciones ideales: caminar, correr y morir (o al menos caminar). *Sketchfab (filtros Animated + Downloadable), Poly Pizza, Quaternius.*
 - [ ] **A2 — Brazos con arma (vista FPS)**, lo único que se ve del jugador. Animaciones ideales: idle, disparo (retroceso) y recarga. *Sketchfab: buscar "fps arms rifle animated" o "fps arms shotgun animated". Una escopeta le queda bien a la granja.* Si no encuentran brazos animados, el arma puede ser un modelo estático y el tercer modelo animado pasa a ser A4.
 - [ ] **A3 — Gallina dorada o gallo jefe**, un bonus que vale más puntos. Animaciones: caminar y correr. *Mismas fuentes que A1, o A1 recoloreado.*
@@ -96,16 +108,19 @@ Marquen cada casilla cuando el asset esté descargado **y cargando en el motor**
 *Fuentes: Kenney Particle Pack (CC0), OpenGameArt. Las plumas también se pueden dibujar en GIMP.*
 
 ### 3.7 GUI / HUD (PNG con transparencia)
-- [ ] Mira (crosshair)
-- [ ] Ícono de gallina (contador de bajas)
-- [ ] Ícono de reloj (tiempo restante)
-- [ ] Paneles de fondo para "¡VICTORIA!" y "DERROTA"
+- [ ] Mira (crosshair): se puede dibujar como un PNG simple de cruz blanca
+- [x] Ícono de gallina (contador de bajas): `assets/hud_gallina.png` (blanco con contorno oscuro)
+- [x] Panel oscuro semitransparente para el contador y el reloj: `assets/hud_panel.png`
+- [ ] Ícono de reloj (tiempo restante), opcional: el panel con "01:43" ya se entiende
+- [x] Paneles de fondo para "¡VICTORIA!" y "DERROTA": `assets/panel_victoria.png` (verde) y `assets/panel_derrota.png` (rojo). El texto va encima, escrito con la fuente del motor
+
+Para que el contador se lea bien: icono + número grande dentro de `hud_panel.png`, arriba a la izquierda, y activar el contorno de las letras en `fontRendering/fontFragment.txt` (hoy `borderWidth = 0.0`). Vista previa: `preview_hud.png` en la raíz del repo.
 - [ ] *(Opcional)* Ícono de munición
 
 *Fuentes: Kenney UI Pack, game-icons.net (CC-BY). Para el texto se puede reutilizar la fuente `candara` o `arial`. Si quieren una nueva, se genera con Hiero (libGDX) en formato `.fnt`.*
 
 ### 3.8 Proyectil
-- [ ] Bala, perdigón o **huevo**: basta una esfera low-poly con textura.
+- [x] **Bala**: `assets/bala.obj` + `assets/bala.png` (casquillo de latón y punta de cobre). Generada para el proyecto en el formato exacto del cargador OBJ. Apunta hacia +Z y mide 1 unidad de largo: en el juego se escala a ~0.2 y se rota hacia donde mira la cámara.
 
 ---
 
@@ -182,4 +197,12 @@ Clases nuevas propuestas, en un paquete `game/`:
 
 | Asset | Autor | Fuente / link | Licencia |
 |---|---|---|---|
+| Ícono de gallina (`hud_gallina.png`) | Delapouite | https://game-icons.net/1x1/delapouite/chicken.html | CC BY 3.0 (hay que citarlo) |
+| Paneles de victoria y derrota | Kenney | https://kenney.nl/assets/ui-pack (UI Pack 2.0) | CC0 |
+| Bala y panel del HUD | Creados por el grupo | — | Propios |
+| Gallina y gallina dorada (A1 y A3, `gallina.glb` / `gallina_dorada.glb`) | Chickensoft (Thibaud Goiffon); colores horneados a textura por el grupo | https://opengameart.org/content/chickensoft-chicken | Modelo CC BY 4.0, animaciones CC0 |
+| Skybox (6 caras) | Greg Zaal y Jarod Guest, Poly Haven ("Kloofendal 48d Partly Cloudy (Pure Sky)") | https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky | CC0 |
+| ~~Gallina (A1), descartada~~ | blujay | https://sketchfab.com/3d-models/chicken-rigged-6e3b93c078114c52bfe4cfa08b9843eb | CC BY 4.0 |
+| Brazos con escopeta (A2) | ccransh (brazos: bumstrum, escopeta: tris09) | https://sketchfab.com/3d-models/fps-arms-remington-shotgun-e68ef617fe8a48cca8610d016ffd5881 | CC BY 4.0 |
+| Gallo jefe (A3) | rukh3d (malla: Enkarra) | https://sketchfab.com/3d-models/handpainted-rooster-02ffc550ed644f849d47d02d4b13a960 | CC BY 4.0 |
 | | | | |

@@ -90,6 +90,7 @@ public class GlbModel {
     private static int locationColor;
     private static int locationUseTexture;
     private static int locationHasBones;
+    private int locationMeshScale = -1;
     private static int locationModelMatrix;
     public int locationTextureSampler;
     public int locationLightDirection;
@@ -419,6 +420,9 @@ public class GlbModel {
         private final float[] color;
         private final boolean hasBones;
         private final float[] vertexData; // copia en CPU, usada para medir el modelo
+        // Escala extra tras el skinning: corrige mallas de FBX que vienen en otra unidad (p. ej. x100)
+        private float postScale = 1.0f;
+        private boolean visible = true;
 
         public GlbMesh(float[] vertexData, int materialIndex, float[] color, boolean hasBones) {
             this.vertexData = vertexData;
@@ -486,6 +490,9 @@ public class GlbModel {
     private final String[] animationNames;
     private org.joml.Vector3f centerOffset;
     private float recommendedScale;
+    // Caja envolvente de la pose de reposo (en unidades del modelo), para escalar y apoyar en el suelo.
+    private org.joml.Vector3f poseMin = new org.joml.Vector3f(-0.5f, 0.0f, -0.5f);
+    private org.joml.Vector3f poseMax = new org.joml.Vector3f(0.5f, 1.0f, 0.5f);
     private final List<BoneInfo> boneInfos;
     private final Map<String, Integer> boneIndexByName;
     private final Matrix4f[] finalBoneMatrices;
@@ -541,6 +548,9 @@ public class GlbModel {
         float sizeY = bounds.maxY - bounds.minY;
         float sizeZ = bounds.maxZ - bounds.minZ;
         float maxSize = Math.max(sizeX, Math.max(sizeY, sizeZ));
+
+        poseMin = new org.joml.Vector3f(bounds.minX, bounds.minY, bounds.minZ);
+        poseMax = new org.joml.Vector3f(bounds.maxX, bounds.maxY, bounds.maxZ);
 
         /*
          * Aumenta el tamaño visual del modelo sin modificar la cámara
@@ -600,7 +610,7 @@ public class GlbModel {
 
             for (int v = 0; v < mesh.vertexCount; v++) {
                 int o = v * GlbMesh.FLOATS_PER_VERTEX;
-                Vector3f p = new Vector3f(data[o], data[o + 1], data[o + 2]);
+                Vector3f p = new Vector3f(data[o], data[o + 1], data[o + 2]).mul(mesh.hasBones ? mesh.postScale : 1f);
 
                 if (mesh.hasBones) {
                     // Igual que el vertex shader: mezcla de matrices de hueso ponderada.
@@ -876,8 +886,12 @@ public class GlbModel {
             }
 
             Path modelDirectory = Paths.get(modelFile).toAbsolutePath().getParent();
-            Path externalTexture = modelDirectory.resolve(texturePath).normalize();
+            Path externalTexture = findExternalTexture(modelDirectory, texturePath);
 
+            if (externalTexture == null) {
+                System.err.println("Textura externa no encontrada: " + texturePath);
+                return null;
+            }
             if (!Files.exists(externalTexture)) {
                 System.err.println("Textura externa no encontrada: " + externalTexture);
                 return null;
@@ -890,6 +904,37 @@ public class GlbModel {
         } finally {
             path.free();
         }
+    }
+
+    /*
+     * Busca una textura externa. Los FBX suelen guardar rutas absolutas del computador del autor
+     * (p. ej. C:\Users\autor\...\Arms_Diffuse.png), así que si la ruta no existe se busca el
+     * nombre del archivo junto al modelo y en sus subcarpetas directas.
+     */
+    private static Path findExternalTexture(Path modelDirectory, String texturePath) {
+        try {
+            Path direct = modelDirectory.resolve(texturePath).normalize();
+            if (Files.exists(direct)) return direct;
+        } catch (Exception ignored) {
+            // ruta inválida en este sistema: se intenta solo con el nombre del archivo
+        }
+
+        String fileName = texturePath.replace('\\', '/');
+        fileName = fileName.substring(fileName.lastIndexOf('/') + 1);
+
+        List<Path> folders = new ArrayList<>();
+        folders.add(modelDirectory);
+        try (java.util.stream.Stream<Path> children = Files.list(modelDirectory)) {
+            children.filter(Files::isDirectory).forEach(folders::add);
+        } catch (IOException ignored) {
+            // sin subcarpetas
+        }
+
+        for (Path folder : folders) {
+            Path candidate = folder.resolve(fileName);
+            if (Files.exists(candidate)) return candidate;
+        }
+        return null;
     }
 
     private static Texture loadEmbeddedTexture(AIScene scene, int textureIndex) {
@@ -1005,6 +1050,156 @@ public class GlbModel {
         }
     }
 
+    /**
+     * Fija animación y tiempo antes de dibujar una instancia. Permite que varias copias
+     * del mismo modelo (p. ej. muchas gallinas) tengan cada una su propia animación.
+     */
+    public void setAnimationState(int index, double timeSeconds) {
+        setActiveAnimationIndex(index);
+        animationTimeSeconds = timeSeconds;
+    }
+
+    /** Índice de la primera animación cuyo nombre contiene el texto (sin distinguir mayúsculas), o -1. */
+    public int findAnimation(String namePart) {
+        String wanted = namePart.toLowerCase();
+        for (int i = 0; i < animationNames.length; i++) {
+            if (animationNames[i].toLowerCase().contains(wanted)) return i;
+        }
+        return -1;
+    }
+
+    /** Duración de una animación en segundos (0 si no existe). */
+    public float getAnimationDuration(int index) {
+        if (index < 0 || index >= animations.size()) return 0.0f;
+        Animation a = animations.get(index);
+        return (float) (a.duration / a.ticksPerSecond);
+    }
+
+    /**
+     * Algunos FBX traen una malla con skinning en otra unidad (100 veces más grande que el resto).
+     * Detecta las mallas mucho más grandes que la mediana de las demás y las lleva a la escala
+     * del resto (potencia de 10). Devuelve cuántas mallas corrigió.
+     */
+    public int fixOversizedSkinnedMeshes(int animationIndex) {
+        Animation animation = (animationIndex >= 0 && animationIndex < animations.size()) ? animations.get(animationIndex) : null;
+        for (int i = 0; i < MAX_BONES; i++) finalBoneMatrices[i].identity();
+        calculateBoneTransforms(rootNode, new Matrix4f().identity(), animation, 0.0);
+        float[] sizes = new float[meshes.size()];
+        for (int m = 0; m < meshes.size(); m++) {
+            Bounds b = new Bounds();
+            collectMeshBounds(rootNode, new Matrix4f().identity(), animation, m, b);
+            sizes[m] = b.isValid() ? Math.max(b.maxX - b.minX, Math.max(b.maxY - b.minY, b.maxZ - b.minZ)) : 0;
+        }
+        float[] sorted = sizes.clone();
+        java.util.Arrays.sort(sorted);
+        float median = sorted[sorted.length / 2];
+        int fixed = 0;
+        for (int m = 0; m < meshes.size(); m++) {
+            GlbMesh mesh = meshes.get(m);
+            if (mesh.hasBones && median > 0 && sizes[m] > median * 20) {
+                double power = Math.round(Math.log10(sizes[m] / median));
+                mesh.postScale = (float) Math.pow(10, -power);
+                System.out.printf("Malla %d corregida: escala x%.4f%n", m, mesh.postScale);
+                fixed++;
+            }
+        }
+        if (fixed > 0) computeFraming();
+        return fixed;
+    }
+
+    /** Deja visibles solo las mallas corregidas por fixOversizedSkinnedMeshes (p. ej. solo el arma, sin brazos). */
+    public void showOnlyCorrectedMeshes() {
+        for (GlbMesh mesh : meshes) mesh.visible = mesh.postScale != 1.0f;
+    }
+
+    /** Diagnóstico: imprime la caja envolvente de cada malla en el primer cuadro de una animación. */
+    public void printMeshBounds(int index) {
+        Animation animation = (index >= 0 && index < animations.size()) ? animations.get(index) : null;
+        for (int i = 0; i < MAX_BONES; i++) finalBoneMatrices[i].identity();
+        calculateBoneTransforms(rootNode, new Matrix4f().identity(), animation, 0.0);
+        for (int m = 0; m < meshes.size(); m++) {
+            Bounds b = new Bounds();
+            collectMeshBounds(rootNode, new Matrix4f().identity(), animation, m, b);
+            GlbMesh mesh = meshes.get(m);
+            System.out.printf("  malla %d (material %d, huesos=%b, vertices=%d, textura=%b): min(%.0f %.0f %.0f) max(%.0f %.0f %.0f)%n",
+                    m, mesh.materialIndex, mesh.hasBones, mesh.vertexCount, texturesByMaterial.containsKey(mesh.materialIndex),
+                    b.minX, b.minY, b.minZ, b.maxX, b.maxY, b.maxZ);
+        }
+    }
+
+    private void collectMeshBounds(Node node, Matrix4f parent, Animation animation, int target, Bounds bounds) {
+        Matrix4f global = new Matrix4f(parent).mul(getAnimatedLocalTransform(node, animation, 0.0));
+        if (node.meshIndices.contains(target)) {
+            GlbMesh mesh = meshes.get(target);
+            for (int v = 0; v < mesh.vertexCount; v++) {
+                int o = v * GlbMesh.FLOATS_PER_VERTEX;
+                Vector3f p = new Vector3f(mesh.vertexData[o], mesh.vertexData[o + 1], mesh.vertexData[o + 2]).mul(mesh.hasBones ? mesh.postScale : 1f);
+                if (mesh.hasBones) {
+                    Vector3f skinned = new Vector3f(), t = new Vector3f();
+                    for (int k = 0; k < 4; k++) {
+                        float w = mesh.vertexData[o + 12 + k];
+                        if (w <= 0) continue;
+                        finalBoneMatrices[(int) (mesh.vertexData[o + 8 + k] + 0.5f)].transformPosition(p, t);
+                        skinned.fma(w, t);
+                    }
+                    p = skinned;
+                } else {
+                    global.transformPosition(p);
+                }
+                bounds.add(p.x, p.y, p.z);
+            }
+        }
+        for (Node child : node.children) collectMeshBounds(child, global, animation, target, bounds);
+    }
+
+    /** Caja envolvente {min, max} del modelo en el primer cuadro de una animación. */
+    public org.joml.Vector3f[] getAnimationBounds(int index) {
+        Animation animation = (index >= 0 && index < animations.size()) ? animations.get(index) : null;
+        Bounds b = calculatePoseBounds(animation, 0.0);
+        if (!b.isValid()) return new org.joml.Vector3f[] {new org.joml.Vector3f(poseMin), new org.joml.Vector3f(poseMax)};
+        return new org.joml.Vector3f[] {
+                new org.joml.Vector3f(b.minX, b.minY, b.minZ),
+                new org.joml.Vector3f(b.maxX, b.maxY, b.maxZ)};
+    }
+
+    public org.joml.Vector3f getPoseMin() {
+        return poseMin;
+    }
+
+    public org.joml.Vector3f getPoseMax() {
+        return poseMax;
+    }
+
+    /**
+     * Matriz que apoya el modelo en el suelo: centra en X/Z, deja la base en y=0 y lo escala
+     * para que mida 'height' de alto. Se usa como: traslado * rotación * normalizar.
+     */
+    public Matrix4f groundedMatrix(float height) {
+        float sizeY = Math.max(poseMax.y - poseMin.y, 0.0001f);
+        float s = height / sizeY;
+        return new Matrix4f()
+                .scale(s)
+                .translate(-(poseMin.x + poseMax.x) * 0.5f, -poseMin.y, -(poseMin.z + poseMax.z) * 0.5f);
+    }
+
+    /** Radio horizontal del modelo una vez escalado a 'height' de alto. */
+    public float groundRadius(float height) {
+        float sizeY = Math.max(poseMax.y - poseMin.y, 0.0001f);
+        float s = height / sizeY;
+        return Math.max(poseMax.x - poseMin.x, poseMax.z - poseMin.z) * s * 0.5f;
+    }
+
+    /** Activa el shader del modelo una vez antes de dibujar varias instancias. */
+    public void begin() {
+        GL20.glUseProgram(shaderProgram);
+        GL20.glUniform3f(locationLightDirection, -0.35f, -1.0f, -0.25f);
+        GL20.glUniform1i(locationTextureSampler, 0);
+    }
+
+    public void end() {
+        GL20.glUseProgram(0);
+    }
+
     public void render(Matrix4f vp, Matrix4f rootModelMatrix) {
         Animation activeAnimation = null;
 
@@ -1021,14 +1216,17 @@ public class GlbModel {
             }
         }
 
-        for (int i = 0; i < MAX_BONES; i++) {
-            finalBoneMatrices[i].identity();
-        }
+        // Los modelos sin huesos (objetos estáticos) no necesitan calcular ni enviar matrices de hueso
+        if (!boneInfos.isEmpty()) {
+            for (int i = 0; i < MAX_BONES; i++) {
+                finalBoneMatrices[i].identity();
+            }
 
-        calculateBoneTransforms(rootNode, new Matrix4f().identity(), activeAnimation, ticks);
+            calculateBoneTransforms(rootNode, new Matrix4f().identity(), activeAnimation, ticks);
 
-        for (int i = 0; i < Math.min(boneInfos.size(), MAX_BONES); i++) {
-            enviarBoneMatrix(i, finalBoneMatrices[i]);
+            for (int i = 0; i < Math.min(boneInfos.size(), MAX_BONES); i++) {
+                enviarBoneMatrix(i, finalBoneMatrices[i]);
+            }
         }
 
         renderNode(rootNode, new Matrix4f(rootModelMatrix), rootModelMatrix, vp, activeAnimation, ticks);
@@ -1066,6 +1264,7 @@ public class GlbModel {
             if (meshIndex < 0 || meshIndex >= meshes.size()) continue;
 
             GlbMesh mesh = meshes.get(meshIndex);
+            if (!mesh.visible) continue;
             Texture texture = texturesByMaterial.get(mesh.materialIndex);
 
             /*
@@ -1082,6 +1281,7 @@ public class GlbModel {
             enviarMVP(mvp);
             enviarModelo(meshTransform);
             glUniform1i(locationHasBones, mesh.hasBones ? 1 : 0);
+            GL20.glUniform1f(locationMeshScale, mesh.postScale);
 
             mesh.render(locationColor, locationUseTexture, texture);
         }
@@ -1167,12 +1367,13 @@ public class GlbModel {
                         "uniform mat4 uModel;\n" +
                         "uniform mat4 uBones[MAX_BONES];\n" +
                         "uniform bool uHasBones;\n" +
+                        "uniform float uMeshScale;\n" +
                         "\n" +
                         "out vec3 passNormal;\n" +
                         "out vec2 passTexCoord;\n" +
                         "\n" +
                         "void main() {\n" +
-                        "    vec4 localPosition = vec4(position, 1.0);\n" +
+                        "    vec4 localPosition = vec4(position * uMeshScale, 1.0);\n" +
                         "    vec3 localNormal = normal;\n" +
                         "\n" +
                         "    if (uHasBones && (weights.x + weights.y + weights.z + weights.w) > 0.0) {\n" +
@@ -1187,7 +1388,7 @@ public class GlbModel {
                         "        skin += uBones[b3] * weights.w;\n" +
                         "        localPosition = skin * localPosition;\n" +
                         "        localNormal = mat3(skin) * normal;\n" +
-                        "    }\n" +
+                                                "    }\n" +
                         "\n" +
                         "    gl_Position = uMVP * localPosition;\n" +
                         "    passNormal = mat3(transpose(inverse(uModel))) * localNormal;\n" +
@@ -1244,6 +1445,7 @@ public class GlbModel {
         locationTextureSampler = glGetUniformLocation(shaderProgram, "uTexture");
         locationLightDirection = glGetUniformLocation(shaderProgram, "uLightDirection");
         locationHasBones = glGetUniformLocation(shaderProgram, "uHasBones");
+        locationMeshScale = glGetUniformLocation(shaderProgram, "uMeshScale");
 
         locationBones = new int[MAX_BONES];
         for (int i = 0; i < MAX_BONES; i++) {

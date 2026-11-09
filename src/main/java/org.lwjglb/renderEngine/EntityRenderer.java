@@ -40,7 +40,6 @@ public class EntityRenderer {
 			List<Entity> batch = entities.get(model);
 			for (Entity entity : batch) {
 				prepareInstance(entity);
-				if (!(entity instanceof Player))
 				GL11.glDrawElements(GL11.GL_TRIANGLES, model.getRawModel().getVertexCount(),
 						GL11.GL_UNSIGNED_INT, 0);
 			}

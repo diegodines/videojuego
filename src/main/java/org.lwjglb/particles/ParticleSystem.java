@@ -46,6 +46,13 @@ public class ParticleSystem {
         }
     }
 
+    /** Emite de golpe 'count' partículas (para efectos ligados a un evento: impacto, disparo). */
+    public void emitBurst(Vector3f center, int count) {
+        for (int i = 0; i < count; i++) {
+            emitParticle(center);
+        }
+    }
+
     private void emitParticle(Vector3f center) {
         Vector3f velocity = null;
         if(direction!=null) {
@@ -57,7 +64,7 @@ public class ParticleSystem {
         velocity.mul(generateValue(averageSpeed, speedError));
         float scale = generateValue(averageScale, scaleError);
         float lifeLength = generateValue(averageLifeLength, lifeError);
-        new Particle(texture, new Vector3f(center), velocity, gravityComplient, lifeLength, 0, 1);
+        new Particle(texture, new Vector3f(center), velocity, gravityComplient, lifeLength, generateRotation(), scale);
     }
 
     private float generateValue(float average, float errorMargin) {
