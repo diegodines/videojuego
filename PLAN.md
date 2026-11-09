@@ -3,7 +3,7 @@
 **Taller de Computación Gráfica y R.E. — Primavera 2026**
 **Entrega:** viernes 13 de noviembre, 23:59 hrs (Moodle) · −1.5 pts por día de atraso
 
-**Idea del juego:** el jugador está en una granja y tiene **2 minutos** para abatir la mayor cantidad de gallinas posible. Si al terminar el tiempo abatió menos de **X** gallinas, pierde.
+**Idea del juego:** shooter en **primera persona (FPS)**. El jugador está en una granja y tiene **2 minutos** para abatir la mayor cantidad de gallinas posible. Si al terminar el tiempo abatió menos de **X** gallinas, pierde. El jugador no se ve: en pantalla aparecen solo sus brazos con el arma.
 
 ---
 
@@ -42,6 +42,7 @@
 | Terreno | `terrains/Terrain.java`: mide 150×150 y la altura máxima es 40. El heightmap es un PNG en grises | Heightmap nuevo, blendmap RGB y 4 texturas de suelo |
 | Skybox | `skybox/SkyboxRenderer.java` carga 6 PNG: `right`, `left`, `top`, `bottom`, `back`, `front` | 6 caras nuevas de un cubemap |
 | Gamepad | **No existe.** `entities/Player.java` solo lee las flechas del teclado | Hay que programarlo con `glfwGetGamepadState` de GLFW. **Es obligatorio** |
+| Cámara | `entities/Camera.java` orbita detrás del jugador (tercera persona) | Hay que cambiarla a primera persona: a la altura de los ojos y con giro horizontal y vertical |
 | Normal mapping | Ya funciona con barril, caja y roca | Un objeto nuevo con textura difusa y normal map |
 
 ### Lo que NO se puede reutilizar (ya está en la carpeta)
@@ -55,7 +56,7 @@ Marquen cada casilla cuando el asset esté descargado **y cargando en el motor**
 
 ### 3.1 Modelos animados (GLB, mínimo 3)
 - [ ] **A1 — Gallina**, el objetivo con muchas copias en escena. Animaciones ideales: caminar, correr y morir (o al menos caminar). *Sketchfab (filtros Animated + Downloadable), Poly Pizza, Quaternius.*
-- [ ] **A2 — Cazador o granjero**, el jugador. Animaciones: idle, correr y disparar o apuntar. *Mixamo: exportar FBX y convertir a GLB en Blender.*
+- [ ] **A2 — Brazos con arma (vista FPS)**, lo único que se ve del jugador. Animaciones ideales: idle, disparo (retroceso) y recarga. *Sketchfab: buscar "fps arms rifle animated" o "fps arms shotgun animated". Una escopeta le queda bien a la granja.* Si no encuentran brazos animados, el arma puede ser un modelo estático y el tercer modelo animado pasa a ser A4.
 - [ ] **A3 — Gallina dorada o gallo jefe**, un bonus que vale más puntos. Animaciones: caminar y correr. *Mismas fuentes que A1, o A1 recoloreado.*
 - [ ] *(Opcional)* **A4 — Perro o zorro** que espanta a las gallinas.
 
@@ -116,15 +117,16 @@ Marquen cada casilla cuando el asset esté descargado **y cargando en el motor**
 
 | Control | Acción |
 |---|---|
-| Stick izquierdo | Moverse |
-| Stick derecho | Girar la cámara o apuntar |
+| Stick izquierdo | Avanzar, retroceder y moverse de lado (*strafe*) |
+| Stick derecho | Mirar y apuntar (horizontal y vertical) |
 | RT | Disparar |
 | A | Saltar |
 | X | Recargar *(opcional)* |
 | Start | Pausa o reiniciar |
 
+- **Vista FPS:** la cámara va a la altura de los ojos del jugador y el giro vertical se limita a unos ±80°. Los brazos con el arma se dibujan al final, pegados a la cámara (abajo a la derecha), limpiando antes el buffer de profundidad para que no atraviesen paredes ni gallinas. La mira queda fija en el centro de la pantalla.
 - **Colisiones** (se piden 2, con respuesta visible):
-  1. **Proyectil contra gallina:** prueba esfera contra esfera. La gallina muere, salen plumas y sube el contador.
+  1. **Disparo contra gallina:** el disparo sale desde el centro de la cámara, en la dirección de la mira, y se prueba contra la esfera de cada gallina. La gallina muere, salen plumas y sube el contador.
   2. **Jugador contra obstáculos** (cerca, granero, fardos): círculo contra caja (AABB). El jugador queda bloqueado o es empujado hacia atrás.
   3. *(Extra)* Jugador contra borde del mapa, y gallina contra cerca, que la hace rebotar.
 - **HUD:** temporizador `01:43`, contador `Gallinas: 12 / 25`, mira, y mensaje final de victoria o derrota con "Start para reiniciar".
@@ -136,6 +138,8 @@ Marquen cada casilla cuando el asset esté descargado **y cargando en el motor**
 
 Clases nuevas propuestas, en un paquete `game/`:
 - `Gamepad`: lectura de input
+- `FpsCamera`: cámara en primera persona (reemplaza el uso de `Camera`)
+- `WeaponView`: dibuja los brazos con el arma pegados a la cámara y elige su animación
 - `GameState`: estados `PLAYING`, `WIN`, `LOSE` y el temporizador
 - `Chicken`: posición, estado, IA y radio de colisión
 - `Projectile`
@@ -146,8 +150,8 @@ Clases nuevas propuestas, en un paquete `game/`:
 |---|---|---|---|
 | 1 | Bajar y convertir assets (Blender: triangular, una malla, exportar OBJ/GLB) y probar que cada uno carga | Todos | Ambos |
 | 2 | Escenario: heightmap, blendmap, texturas de suelo, skybox nuevo y distribución de los 8 tipos de estáticos + el objeto con normal map | Terreno, Skybox, Entidades, Texturizado | Persona A |
-| 3 | Gamepad: `Gamepad.java` con GLFW, mover al `Player` con los sticks y cámara en tercera persona sobre el hombro | Gamepad | Persona B |
-| 4 | Jugador animado: reemplazar `person.obj` por el cazador GLB y cambiar de animación según su estado (idle, correr, disparar) | Modelos 3D | Persona B |
+| 3 | Gamepad y cámara FPS: `Gamepad.java` con GLFW, `FpsCamera` a la altura de los ojos, mirar con el stick derecho y moverse con *strafe* con el izquierdo. Dejar de dibujar `person.obj` | Gamepad | Persona B |
+| 4 | Arma en pantalla: `WeaponView` dibuja los brazos con el arma pegados a la cámara y cambia la animación (idle, disparo, recarga). Mira fija en el centro | Modelos 3D | Persona B |
 | 5 | Gallinas: N instancias del GLB, IA de deambular y huir, y reaparición | Modelos 3D, mecánica | Persona A |
 | 6 | Disparo y colisiones: proyectil, impacto con gallina y bloqueo contra obstáculos | Colisiones | Persona B |
 | 7 | Partículas de plumas (impacto) y de fogonazo (disparo) | Partículas | Persona A |
@@ -168,6 +172,8 @@ Clases nuevas propuestas, en un paquete `game/`:
 ### Riesgos
 - **Rendimiento con muchas gallinas GLB:** actualizar la animación una sola vez por modelo y dibujarla con distintas matrices. Empezar con unas 15 en pantalla.
 - **Escala y orientación de cada GLB:** cada modelo viene a otra escala. Normalizar en Blender o usar `getRecommendedScale()`.
+- **Arma atravesando objetos:** si no se limpia el buffer de profundidad antes de dibujar los brazos, el arma se mete dentro de paredes y gallinas cercanas.
+- **Personaje que no se ve:** el enunciado pide un personaje principal. En el informe y el video hay que presentarlo igual (nombre, historia y controles), aunque en pantalla solo aparezcan sus brazos.
 - **No hay audio** en el motor (falta la dependencia OpenAL). Queda como mejora futura.
 
 ---
